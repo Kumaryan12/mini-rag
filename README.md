@@ -8,25 +8,10 @@ Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k →
 Architecture
 ```mermaid
 flowchart LR
-  A[Frontend (Next.js)]
+  A[Frontend]
   B[Ingest API]
-  C[Ask API]
-  D[Cohere Embeddings]
-  E[Weaviate Cloud]
-  F[Cohere Rerank]
-  G[Cohere Chat]
-
   A -->|POST /api/ingest| B
-  A -->|POST /api/ask| C
-  B -->|chunk + embed| D
-  B -->|batched upserts| E
-  C -->|embed query| D
-  C -->|top-k vector search| E
-  C -->|rerank N| F
-  C -->|prompt with numbered context| G
-  G -->|answer + [n] citations| A
-
-```
+  ```
 
 Frontend: Next.js (App Router). Paste/ask UI with timing + sources panel.
 
