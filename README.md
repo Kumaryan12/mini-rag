@@ -8,16 +8,9 @@ Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k →
 Architecture
 ```mermaid
 flowchart LR
-  UI[Web UI]
-  ING[Ingest API]
-  ASK[Ask API]
-  EMB[Cohere Embed]
-  DB[Weaviate]
-  RER[Cohere Rerank]
-  LLM[Cohere Chat]
-
-  UI -->|POST /ingest| ING --> EMB --> DB
-  UI -->|POST /ask|    ASK --> EMB --> DB -->|top-k| RER --> LLM --> UI
+  A[Frontend]
+  B[Ingest API]
+  A -->|POST /api/ingest| B
   ```
 
 Frontend: Next.js (App Router). Paste/ask UI with timing + sources panel.
