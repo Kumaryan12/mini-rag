@@ -6,7 +6,7 @@ Live demo: https://mini-rag-ak.vercel.app
 Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k → rerank → answer with an LLM and inline citations.
 
 Architecture
-``` mermaid
+```mermaid
 flowchart LR
   A[Frontend (Next.js)]
   B[Ingest API]
