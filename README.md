@@ -1,36 +1,262 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mini-RAG (Track B)
 
-## Getting Started
+Live demo: https://mini-rag-ak.vercel.app
 
-First, run the development server:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k → rerank → answer with an LLM and inline citations.
+
+Architecture
+``` mermaid
+flowchart LR
+  A[Frontend (Next.js)] -- POST /api/ingest --> B[Ingest API]
+  A -- POST /api/ask --> C[Ask API]
+  B -- chunk & embed --> D[Cohere Embeddings]
+  B -- batched upserts --> E[Weaviate Cloud]
+  C -- embed query --> D
+  C -- top-k vector search --> E
+  C -- rerank k' --> F[Cohere Rerank]
+  C -- prompt with numbered snippets --> G[Cohere Chat]
+  G -- answer + [n] citations --> A
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Frontend: Next.js (App Router). Paste/ask UI with timing + sources panel.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Embeddings: Cohere embed-english-v3.0 (1024-d).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Vector DB: Weaviate Cloud (HNSW, cosine, vectorizer=none).
 
-## Learn More
+Retrieval: vector top-k (default 12).
 
-To learn more about Next.js, take a look at the following resources:
+Reranker: Cohere rerank-english-v3.0; keep best N (default 6).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Answering LLM: Cohere command-r-plus; inline [n] citations; graceful I don’t know.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Index / Collection Config (Track B)
 
-## Deploy on Vercel
+Class name: DocChunk
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Distance: cosine
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vectorizer: none
+
+Vector index: HNSW
+
+Dimension: 1024 (matches Cohere embeddings)
+
+Properties stored (for citations & filters):
+
+doc_id (uuid), chunk_id (uuid)
+
+source (e.g., upload, url), title, section, position
+
+text (chunk body), url, published_at
+
+Upsert strategy: one object per chunk, with metadata + vector.
+
+Chunking Strategy
+
+Target ~1,000 tokens per chunk (using a fast 4-chars≈1-token heuristic)
+
+~150 token overlap (≈10–15%)
+
+Prefer breaks on sentence/paragraph boundaries
+
+Metadata recorded: title, section="body", position (0-based)
+
+Environment Variables
+
+Create .env.local (local) and set the same on Vercel Production:
+``` bash
+COHERE_API_KEY=your_cohere_key
+WEAVIATE_HOST=your-cluster.weaviate.cloud         # hostname only, no https:// or trailing /
+WEAVIATE_API_KEY=your_weaviate_admin_key
+
+EMBEDDING_MODEL=embed-english-v3.0
+VECTOR_CLASS_NAME=DocChunk
+
+# Tunables (safe defaults)
+MAX_INGEST_CHUNKS=800
+COHERE_EMBED_BATCH=96          # Cohere limit
+WEAVIATE_UPSERT_BATCH=200
+
+# Optional (if you enabled file upload)
+MAX_UPLOAD_BYTES=4000000
+
+# Optional (UI rough cost estimates; purely informational)
+NEXT_PUBLIC_PRICE_EMBED_PER_1K=0.10
+NEXT_PUBLIC_PRICE_RERANK_PER_DOC=0.0004
+NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
+```
+
+Tip: WEAVIATE_HOST must be just the hostname (no scheme), e.g.
+awkere3eq4eyu4uhwvns9a.c0.asia-southeast1.gcp.weaviate.cloud
+
+Quick Start (Local)
+``` bash
+# 1) Install
+npm i
+
+# 2) Copy env template (then fill values)
+cp .env.example .env.local   # (include this file in the repo; sample below)
+
+# 3) (one-time) create/ensure class in Weaviate
+node --env-file=.env.local scripts/init-weaviate.mjs
+
+# 4) Run
+npm run dev
+
+```
+Open http://localhost:3000
+
+Paste a paragraph, click Index Text, then ask a question.
+
+Deploy (Free Host: Vercel)
+
+Import GitHub repo into Vercel.
+
+Add the Environment Variables above to Production (and Preview if needed).
+
+Deploy.
+
+Visit your live URL → first screen should load without console errors.
+
+API
+POST /api/ingest
+```jsonc
+{
+  "text": "string (full document)",
+  "title": "My Doc",
+  "source": "upload",
+  "url": "optional",
+  "docId": "optional uuid (if you manage your own ids)"
+}
+```
+
+Splits into chunks → embeds in batches (≤96) → upserts to Weaviate in batches.
+Response: { ok, doc_id, chunks, embedded, weaviate_status }
+
+POST /api/ask
+```jsonc
+{
+  "query": "question string",
+  "topK": 12,      // retrieve
+  "finalN": 6      // keep after rerank
+}
+```
+
+Embeds query → vector search (top-k) → Cohere Rerank → Cohere Chat
+Response: { ok, answer, sources: [{n,title,section,position,source,url,snippet}], timings_ms }
+
+Minimal Eval (Acceptance Criteria)
+
+Use the sample doc below to create a small index, then ask the following 5 questions.
+Record the results in this section after you run them on your live URL.
+
+Sample doc to paste
+```vbnet
+System: Mini-RAG demo spec.
+
+Vector DB: Weaviate Cloud, HNSW, cosine, vectorizer=none.
+
+Embeddings: Cohere embed-english-v3.0 (1024-dim).
+
+Chunking: ~1,000 tokens per chunk with ~150-token overlap (≈10–15%). We store metadata: doc_id, chunk_id, source, title, section, position, text, url, published_at.
+
+Retrieval: vector top-k = 12 from Weaviate.
+
+Reranker: Cohere rerank-english-v3.0; after reranking we keep the best 6 chunks.
+
+Answering LLM: Cohere command-r-plus. Answers must be grounded in context with inline [n] citations; if not found, reply “I don’t know.”
+
+Frontend: shows total time in ms.
+
+Upsert strategy: one object per chunk with its vector and metadata.
+```
+5 Q/A (gold set)
+
+What embedding model and dimensionality are used?
+
+What chunk size and overlap are configured?
+
+Which reranker is used and how many chunks are kept?
+
+What distance metric does the vector DB use?
+
+What should the model answer if the info isn’t in the context?
+
+Example outcome: 5/5 correct with proper [n] citations; total time ≈ 1–3 s on small docs.
+
+Rough Cost Notes (informational)
+
+For small docs:
+
+Embeddings: #chunks × (chars/4)/1000 × $NEXT_PUBLIC_PRICE_EMBED_PER_1K
+
+Rerank: ~finalN*2 docs × $NEXT_PUBLIC_PRICE_RERANK_PER_DOC
+
+Chat: (promptTokens)/1000 × $NEXT_PUBLIC_PRICE_CHAT_PER_1K
+These are shown in the README only (no billing logic in code).
+
+Remarks (limits, trade-offs, next steps)
+
+Current limitations
+
+Vector-only retrieval (no BM25/hybrid); no metadata filters yet.
+
+Single-turn QA; no streaming; approximate tokenizer for chunking.
+
+No dedupe/update/delete endpoints (duplicates possible on re-ingest).
+
+English embeddings model; non-English recall may drop.
+
+Minimal retries/backoff; no per-user quotas; no auth.
+
+What I’d do next
+
+Hybrid search (BM25 + vector) with basic filters (by title/source/date).
+
+Delete/list docs endpoints + small admin panel.
+
+Streaming answers and source highlighting.
+
+Optional multilingual embeddings switch.
+
+Auth + per-user namespaces and quotas.
+
+.env.example
+```bash
+# Cohere
+COHERE_API_KEY=YOUR_KEY
+
+# Weaviate Cloud (hostname only; no https://)
+WEAVIATE_HOST=your-cluster.weaviate.cloud
+WEAVIATE_API_KEY=YOUR_ADMIN_KEY
+
+# RAG config
+EMBEDDING_MODEL=embed-english-v3.0
+VECTOR_CLASS_NAME=DocChunk
+
+# Batching / limits
+MAX_INGEST_CHUNKS=800
+COHERE_EMBED_BATCH=96
+WEAVIATE_UPSERT_BATCH=200
+
+# Optional upload size (if file upload is enabled)
+MAX_UPLOAD_BYTES=4000000
+
+# Optional UI pricing hints (rough)
+NEXT_PUBLIC_PRICE_EMBED_PER_1K=0.10
+NEXT_PUBLIC_PRICE_RERANK_PER_DOC=0.0004
+NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
+```
+Troubleshooting
+
+401 invalid api token → check COHERE_API_KEY / WEAVIATE_API_KEY.
+
+Weaviate host error → ensure WEAVIATE_HOST is hostname only (no scheme).
+
+Cohere embed “at most 96 texts” → app batches automatically; if seen, reload and try again.
+
+Build fails with no-explicit-any → repo is typed; ensure you’ve pulled latest.
+
+First request slow → serverless cold start; subsequent requests are faster.
