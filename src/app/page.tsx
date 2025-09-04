@@ -9,7 +9,7 @@ type AskResp = {
     source: string; url: string; snippet: string;
   }[];
   timings_ms?: { total: number };
-  error?: any;
+  error?: string | unknown; // ← was `any`
 };
 
 export default function Home() {
@@ -34,8 +34,9 @@ export default function Home() {
       const data = await res.json();
       if (!data.ok) throw new Error(JSON.stringify(data.error ?? data));
       setIngestStatus(`✅ Indexed ${data.chunks} chunks (doc_id=${data.doc_id})`);
-    } catch (e: any) {
-      setIngestStatus(`❌ ${e.message}`);
+    } catch (e: unknown) { // ← was `any`
+      const msg = e instanceof Error ? e.message : String(e);
+      setIngestStatus(`❌ ${msg}`);
     }
   }
 
