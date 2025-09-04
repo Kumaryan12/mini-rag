@@ -8,7 +8,7 @@ Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k →
 Architecture
 ``` mermaid
 flowchart LR
-  A[Frontend (Next.js)] -->|POST /api/ingest| B[Ingest API]
+  
   A -->|POST /api/ask| C[Ask API]
   B -->|chunk & embed| D[Cohere Embeddings]
   B -->|batched upserts| E[Weaviate Cloud]
