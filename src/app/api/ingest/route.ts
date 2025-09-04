@@ -13,9 +13,11 @@ const UPSERT_BATCH = Number(process.env.WEAVIATE_UPSERT_BATCH ?? 200);
 const MAX_INGEST_CHUNKS = Number(process.env.MAX_INGEST_CHUNKS ?? 800);
 
 // Cohere can return number[][] or { float: number[][], ... }
-function toVectors(emb: any): number[][] {
-  if (Array.isArray(emb)) return emb as number[][];
-  const obj = emb as Record<string, number[][]>;
+type EmbeddingsUnion = number[][] | Record<string, number[][]>;
+function toVectors(emb: unknown): number[][] {
+  const e = emb as EmbeddingsUnion;
+  if (Array.isArray(e)) return e;
+  const obj = e as Record<string, number[][]>;
   return (obj.float ?? Object.values(obj)[0]) as number[][];
 }
 
@@ -49,11 +51,13 @@ export async function POST(req: Request) {
 
     for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
       const slice = chunks.slice(i, i + EMBED_BATCH);
-      const resp = await co.embed({
+      const resp = (await co.embed({
         model,
         texts: slice.map((c) => c.text),
-        inputType: "search_document" as any,
-      });
+        // keep the runtime value but avoid `any` in types:
+        inputType: "search_document" as unknown as never,
+      })) as unknown as { embeddings: EmbeddingsUnion };
+
       const vs = toVectors(resp.embeddings);
       if (vs.length !== slice.length) {
         throw new Error(`Embedding count mismatch at batch starting ${i}: expected ${slice.length}, got ${vs.length}`);
@@ -89,8 +93,11 @@ export async function POST(req: Request) {
         });
       }
 
-      const res: any = await batcher.do();
-      const inserted = Array.isArray(res) ? res.length : res?.results?.objects?.length ?? 0;
+      const res = (await batcher.do()) as unknown;
+      const inserted = Array.isArray(res)
+        ? (res as unknown[]).length
+        : ((res as { results?: { objects?: unknown[] } })?.results?.objects?.length ?? 0);
+
       totalInserted += inserted;
     }
 
@@ -101,8 +108,9 @@ export async function POST(req: Request) {
       embedded: vectors.length,
       weaviate_status: totalInserted,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
     console.error(e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 }
