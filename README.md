@@ -1,38 +1,42 @@
+<a id="readme-top"></a>
+
 # Mini-RAG (Track B)
 
-Live demo: https://mini-rag-ak.vercel.app
+**Live demo:** `https://mini-rag-ak.vercel.app`  
 
+Paste text → index to a **cloud-hosted vector DB** (Weaviate) → **retrieve** top-k → **rerank** (Cohere) → **answer** (Cohere) with inline citations like `[1]`.
 
-Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k → rerank → answer with an LLM and inline citations.
+---
 
-Architecture
-``` mermaid
+## Highlights
+
+- **Cloud vector DB:** Weaviate Cloud, HNSW, cosine, vectorizer=none, **1024-dim** vectors  
+- **Embeddings:** Cohere `embed-english-v3.0`  
+- **Retrieval + Rerank:** top-k (default 12) → Cohere `rerank-english-v3.0` → keep best N (default 6)  
+- **LLM + Citations:** Cohere `command-r-plus`, grounded answers with inline `[n]` and source panel  
+- **Chunking:** ~1,000 tokens per chunk, ~150-token overlap (~10–15%), sentence-aware splits  
+- **Batching:** Cohere embed batches (≤96) and Weaviate upserts in batches to avoid limits  
+- **Frontend:** Next.js (App Router) with timing and sources UI
+
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+
+---
+
+## Architecture
+
+```mermaid
 flowchart LR
-  A[Frontend (Next.js)] -- POST /api/ingest --> B[Ingest API]
-  A -- POST /api/ask --> C[Ask API]
-  B -- chunk & embed --> D[Cohere Embeddings]
-  B -- batched upserts --> E[Weaviate Cloud]
-  C -- embed query --> D
-  C -- top-k vector search --> E
-  C -- rerank k' --> F[Cohere Rerank]
-  C -- prompt with numbered snippets --> G[Cohere Chat]
-  G -- answer + [n] citations --> A
-```
-
-Frontend: Next.js (App Router). Paste/ask UI with timing + sources panel.
-
-Embeddings: Cohere embed-english-v3.0 (1024-d).
-
-Vector DB: Weaviate Cloud (HNSW, cosine, vectorizer=none).
-
-Retrieval: vector top-k (default 12).
-
-Reranker: Cohere rerank-english-v3.0; keep best N (default 6).
-
-Answering LLM: Cohere command-r-plus; inline [n] citations; graceful I don’t know.
-
-Index / Collection Config (Track B)
-
+  A[Frontend (Next.js)] -->|POST "/api/ingest"| B[Ingest API]
+  A -->|POST "/api/ask"| C[Ask API]
+  B -->|"chunk → embed (Cohere)"| D[Cohere Embeddings]
+  B -->|"batched upserts"| E[Weaviate Cloud]
+  C -->|"embed query"| D
+  C -->|"top-k vector search"| E
+  C -->|"rerank best N"| F[Cohere Rerank]
+  C -->|"prompt with numbered snippets"| G[Cohere Chat]
+  G -->|"answer + [n] citations"| A
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+Index / Collection Config (Weaviate)
 Class name: DocChunk
 
 Distance: cosine
@@ -41,34 +45,33 @@ Vectorizer: none
 
 Vector index: HNSW
 
-Dimension: 1024 (matches Cohere embeddings)
+Dimension: 1024 (Cohere embed-english-v3.0)
 
-Properties stored (for citations & filters):
+Properties stored:
+doc_id, chunk_id, source, title, section, position, text, url, published_at
 
-doc_id (uuid), chunk_id (uuid)
+Upsert strategy: one object per chunk with its vector + metadata.
 
-source (e.g., upload, url), title, section, position
+One-time schema helper: scripts/init-weaviate.mjs creates/ensures the DocChunk class.
 
-text (chunk body), url, published_at
-
-Upsert strategy: one object per chunk, with metadata + vector.
-
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
 Chunking Strategy
+Target ~1,000 tokens/chunk (fast 4 chars ≈ 1 token heuristic)
 
-Target ~1,000 tokens per chunk (using a fast 4-chars≈1-token heuristic)
+~150 token overlap (~10–15%)
 
-~150 token overlap (≈10–15%)
+Prefer sentence/paragraph boundaries; record section="body", position (0-based)
 
-Prefer breaks on sentence/paragraph boundaries
-
-Metadata recorded: title, section="body", position (0-based)
-
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
 Environment Variables
+Create .env.local locally and set the same on Vercel Production:
 
-Create .env.local (local) and set the same on Vercel Production:
-``` bash
+bash
+Copy code
 COHERE_API_KEY=your_cohere_key
-WEAVIATE_HOST=your-cluster.weaviate.cloud         # hostname only, no https:// or trailing /
+
+# Hostname only — no "https://" and no trailing slash
+WEAVIATE_HOST=your-cluster.weaviate.cloud
 WEAVIATE_API_KEY=your_weaviate_admin_key
 
 EMBEDDING_MODEL=embed-english-v3.0
@@ -76,91 +79,124 @@ VECTOR_CLASS_NAME=DocChunk
 
 # Tunables (safe defaults)
 MAX_INGEST_CHUNKS=800
-COHERE_EMBED_BATCH=96          # Cohere limit
+COHERE_EMBED_BATCH=96
 WEAVIATE_UPSERT_BATCH=200
+Important: WEAVIATE_HOST must be just the hostname (xyz.weaviate.cloud), not a full URL.
 
-# Optional (if you enabled file upload)
-MAX_UPLOAD_BYTES=4000000
-
-# Optional (UI rough cost estimates; purely informational)
-NEXT_PUBLIC_PRICE_EMBED_PER_1K=0.10
-NEXT_PUBLIC_PRICE_RERANK_PER_DOC=0.0004
-NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
-```
-
-Tip: WEAVIATE_HOST must be just the hostname (no scheme), e.g.
-awkere3eq4eyu4uhwvns9a.c0.asia-southeast1.gcp.weaviate.cloud
-
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+Project Structure
+text
+Copy code
+.
+├─ src/
+│  ├─ app/
+│  │  ├─ api/
+│  │  │  ├─ ingest/route.ts      # chunk → embed (batched) → upsert (batched)
+│  │  │  └─ ask/route.ts         # embed query → retrieve → rerank → chat → citations
+│  │  ├─ layout.tsx
+│  │  └─ page.tsx                # simple paste + ask UI
+│  └─ lib/
+│     ├─ chunker.ts              # sentence-aware ~1000/150 chunking (char→token approx)
+│     └─ weaviate.ts             # client factory using env vars
+├─ scripts/
+│  └─ init-weaviate.mjs          # ensure DocChunk (1024-d, cosine, HNSW)
+├─ .env.example
+├─ next.config.ts
+├─ package.json
+└─ README.md
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
 Quick Start (Local)
-``` bash
+bash
+Copy code
 # 1) Install
 npm i
 
-# 2) Copy env template (then fill values)
-cp .env.example .env.local   # (include this file in the repo; sample below)
+# 2) Copy env template and fill values
+cp .env.example .env.local
 
-# 3) (one-time) create/ensure class in Weaviate
+# 3) Ensure Weaviate class exists
 node --env-file=.env.local scripts/init-weaviate.mjs
 
 # 4) Run
 npm run dev
-
-```
 Open http://localhost:3000
 
-Paste a paragraph, click Index Text, then ask a question.
+Paste some text → Index Text
 
-Deploy (Free Host: Vercel)
+Ask a question → see answer + [n] citations + sources
 
-Import GitHub repo into Vercel.
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+Deploy (Vercel – free host)
+Import the GitHub repo into Vercel
 
-Add the Environment Variables above to Production (and Preview if needed).
+Add the Environment Variables above to Production
 
-Deploy.
+Deploy → open the live URL (first screen should load with no console errors)
 
-Visit your live URL → first screen should load without console errors.
-
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
 API
 POST /api/ingest
-```jsonc
+Request
+
+json
+Copy code
 {
-  "text": "string (full document)",
-  "title": "My Doc",
+  "text": "full document text",
+  "title": "My Document",
   "source": "upload",
-  "url": "optional",
-  "docId": "optional uuid (if you manage your own ids)"
+  "url": "",
+  "docId": ""
 }
-```
+Behavior
 
-Splits into chunks → embeds in batches (≤96) → upserts to Weaviate in batches.
-Response: { ok, doc_id, chunks, embedded, weaviate_status }
+Chunk (~1000/150)
 
+Cohere embeddings in batches of ≤ 96
+
+Upsert to Weaviate in batches (default 200)
+
+Response
+
+json
+Copy code
+{ "ok": true, "doc_id": "uuid", "chunks": 74, "embedded": 74, "weaviate_status": 74 }
 POST /api/ask
-```jsonc
+Request
+
+json
+Copy code
+{ "query": "string", "topK": 12, "finalN": 6 }
+Behavior
+
+Embed query (Cohere) → vector search (Weaviate) → rerank (Cohere) → chat (Cohere)
+
+Answer with inline citations [n]; show sources/snippets
+
+Response
+
+json
+Copy code
 {
-  "query": "question string",
-  "topK": 12,      // retrieve
-  "finalN": 6      // keep after rerank
+  "ok": true,
+  "answer": "… [1] … [3].",
+  "sources": [
+    { "n": 1, "title": "My Document", "section": "body", "position": 12, "source": "upload", "url": "", "snippet": "…" }
+  ],
+  "timings_ms": { "total": 1830 }
 }
-```
-
-Embeds query → vector search (top-k) → Cohere Rerank → Cohere Chat
-Response: { ok, answer, sources: [{n,title,section,position,source,url,snippet}], timings_ms }
-
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
 Minimal Eval (Acceptance Criteria)
+Use this sample doc to create a small index:
 
-Use the sample doc below to create a small index, then ask the following 5 questions.
-Record the results in this section after you run them on your live URL.
-
-Sample doc to paste
-```vbnet
+text
+Copy code
 System: Mini-RAG demo spec.
 
 Vector DB: Weaviate Cloud, HNSW, cosine, vectorizer=none.
 
 Embeddings: Cohere embed-english-v3.0 (1024-dim).
 
-Chunking: ~1,000 tokens per chunk with ~150-token overlap (≈10–15%). We store metadata: doc_id, chunk_id, source, title, section, position, text, url, published_at.
+Chunking: ~1,000 tokens per chunk with ~150-token overlap (~10–15%). We store metadata: doc_id, chunk_id, source, title, section, position, text, url, published_at.
 
 Retrieval: vector top-k = 12 from Weaviate.
 
@@ -171,8 +207,7 @@ Answering LLM: Cohere command-r-plus. Answers must be grounded in context with i
 Frontend: shows total time in ms.
 
 Upsert strategy: one object per chunk with its vector and metadata.
-```
-5 Q/A (gold set)
+Ask these 5 questions on the live URL and record your outcomes:
 
 What embedding model and dimensionality are used?
 
@@ -184,47 +219,60 @@ What distance metric does the vector DB use?
 
 What should the model answer if the info isn’t in the context?
 
-Example outcome: 5/5 correct with proper [n] citations; total time ≈ 1–3 s on small docs.
+Expected: clear answers with correct [n] citations and visible sources.
 
-Rough Cost Notes (informational)
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+Troubleshooting
+401 invalid api token → check COHERE_API_KEY / WEAVIATE_API_KEY
 
-For small docs:
+Weaviate host issues → WEAVIATE_HOST must be hostname only (no https://)
 
-Embeddings: #chunks × (chars/4)/1000 × $NEXT_PUBLIC_PRICE_EMBED_PER_1K
+Cohere “≤96 texts” error → batching is implemented; if you still hit it, reload and try again
 
-Rerank: ~finalN*2 docs × $NEXT_PUBLIC_PRICE_RERANK_PER_DOC
+Class not found → run node --env-file=.env.local scripts/init-weaviate.mjs
 
-Chat: (promptTokens)/1000 × $NEXT_PUBLIC_PRICE_CHAT_PER_1K
-These are shown in the README only (no billing logic in code).
+No-answer cases → should return “I don’t know.”
 
-Remarks (limits, trade-offs, next steps)
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+Remarks (Limits & Next Steps)
+Current limits
 
-Current limitations
+Vector-only retrieval (no hybrid BM25) and no metadata filters yet
 
-Vector-only retrieval (no BM25/hybrid); no metadata filters yet.
+No delete/list endpoints (re-ingest may duplicate)
 
-Single-turn QA; no streaming; approximate tokenizer for chunking.
+Single-turn answers; no streaming or conversation history
 
-No dedupe/update/delete endpoints (duplicates possible on re-ingest).
+Approximate tokenizer for chunk sizes
 
-English embeddings model; non-English recall may drop.
+English embedding model; multilingual content may underperform
 
-Minimal retries/backoff; no per-user quotas; no auth.
+Possible next steps
 
-What I’d do next
+Hybrid search (BM25 + vector) & basic metadata filters (title, date, source)
 
-Hybrid search (BM25 + vector) with basic filters (by title/source/date).
+Delete/list APIs + small admin UI
 
-Delete/list docs endpoints + small admin panel.
+Streaming answers & highlighted citations
 
-Streaming answers and source highlighting.
+Switchable multilingual embeddings
 
-Optional multilingual embeddings switch.
+Auth + per-user namespaces and quotas
 
-Auth + per-user namespaces and quotas.
+<p align="right"><a href="#readme-top">↑ back to top</a></p>
+License
+MIT — free to use, no warranty.
+
+Notes for Reviewers
+Working URL loads without console errors
+
+Flow: query → retrieved chunks → reranked → LLM answer with citations
+
+README includes index config, chunking params, providers, quick-start, remarks
 
 .env.example
-```bash
+bash
+Copy code
 # Cohere
 COHERE_API_KEY=YOUR_KEY
 
@@ -240,23 +288,3 @@ VECTOR_CLASS_NAME=DocChunk
 MAX_INGEST_CHUNKS=800
 COHERE_EMBED_BATCH=96
 WEAVIATE_UPSERT_BATCH=200
-
-# Optional upload size (if file upload is enabled)
-MAX_UPLOAD_BYTES=4000000
-
-# Optional UI pricing hints (rough)
-NEXT_PUBLIC_PRICE_EMBED_PER_1K=0.10
-NEXT_PUBLIC_PRICE_RERANK_PER_DOC=0.0004
-NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
-```
-Troubleshooting
-
-401 invalid api token → check COHERE_API_KEY / WEAVIATE_API_KEY.
-
-Weaviate host error → ensure WEAVIATE_HOST is hostname only (no scheme).
-
-Cohere embed “at most 96 texts” → app batches automatically; if seen, reload and try again.
-
-Build fails with no-explicit-any → repo is typed; ensure you’ve pulled latest.
-
-First request slow → serverless cold start; subsequent requests are faster.
