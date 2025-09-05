@@ -5,7 +5,7 @@ import { CohereClient } from "cohere-ai";
 
 export const runtime = "nodejs";
 
-/* ---------- Minimal types (no behavior change) ---------- */
+/* ---------- Types ---------- */
 
 type EmbeddingsUnion = number[][] | Record<string, number[][]>;
 interface CohereEmbedResponse { embeddings: EmbeddingsUnion; }
@@ -36,10 +36,12 @@ function toVectors(emb: unknown): number[][] {
   return (obj.float ?? Object.values(obj)[0]) ?? [];
 }
 
+// ADD: optional docId
 const AskBody = z.object({
   query: z.string().min(1),
   topK: z.number().int().positive().default(12),
   finalN: z.number().int().positive().default(6),
+  docId: z.string().optional(),
 });
 
 function buildPrompt(query: string, numberedSnippets: string[]) {
@@ -60,7 +62,8 @@ Answer (concise, with citations):`;
 
 export async function POST(req: Request) {
   try {
-    const { query, topK, finalN } = AskBody.parse(await req.json());
+    // PARSE docId as well
+    const { query, topK, finalN, docId } = AskBody.parse(await req.json());
     const t0 = Date.now();
 
     const co = new CohereClient({ token: process.env.COHERE_API_KEY! });
@@ -74,10 +77,11 @@ export async function POST(req: Request) {
     })) as unknown as CohereEmbedResponse;
     const qvec = toVectors(qemb.embeddings)[0];
 
-    // 2) retrieve from Weaviate
+    // 2) retrieve from Weaviate (optionally filter by doc_id)
     const weav = getWeaviate();
     const className = process.env.VECTOR_CLASS_NAME || "DocChunk";
-    const gql = (await weav.graphql
+
+    const getBuilder = weav.graphql
       .get()
       .withClassName(className)
       .withFields(`
@@ -91,8 +95,18 @@ export async function POST(req: Request) {
         _additional { id distance }
       `)
       .withNearVector({ vector: qvec })
-      .withLimit(topK)
-      .do()) as unknown as WeaviateGraphQLGet;
+      .withLimit(topK);
+
+    // NEW: scope to a single document when docId is provided
+    if (docId) {
+      getBuilder.withWhere({
+        path: ["doc_id"],
+        operator: "Equal",
+        valueString: docId,
+      } as unknown as never);
+    }
+
+    const gql = (await getBuilder.do()) as unknown as WeaviateGraphQLGet;
 
     const hits: WeaviateHit[] = gql?.data?.Get?.[className] ?? [];
     if (!hits.length) {
