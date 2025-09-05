@@ -21,7 +21,6 @@
 - [Architecture](#architecture)
 - [Environment Variables](#environment-variables)
 - [Quick Start (Local)](#quick-start-local)
-- [Deploy (Free Host: Vercel)](#deploy-free-host-vercel)
 - [API](#api)
   - [POST /api/ingest](#post-apiingest)
   - [POST /api/ask](#post-apiask)
