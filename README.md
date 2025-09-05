@@ -16,7 +16,26 @@
 - **Frontend:** Next.js (App Router) with paste/ask UI, sources panel, and total time (ms).
 
 ---
+## Table of Contents
 
+- [Architecture](#architecture)
+- [Index / Collection Config (Track B)](#index--collection-config-track-b)
+- [Chunking Strategy](#chunking-strategy)
+- [Environment Variables](#environment-variables)
+- [Quick Start (Local)](#quick-start-local)
+- [Deploy (Free Host: Vercel)](#deploy-free-host-vercel)
+- [API](#api)
+  - [POST /api/ingest](#post-apiingest)
+  - [POST /api/ask](#post-apiask)
+- [Minimal Eval (Acceptance Criteria)](#minimal-eval-acceptance-criteria)
+- [Rough Cost Notes (informational)](#rough-cost-notes-informational)
+- [Remarks (limits, trade-offs, next steps)](#remarks-limits-trade-offs-next-steps)
+  - [Current limitations](#current-limitations)
+  - [What I’d do next](#what-id-do-next)
+- [.env.example](#envexample)
+- [Troubleshooting](#troubleshooting)
+
+---
 ## Architecture
 
 ```mermaid
