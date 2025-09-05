@@ -1,61 +1,57 @@
 # Mini-RAG (Track B)
 
-Live demo: https://mini-rag-ak.vercel.app
+**Live demo:** https://mini-rag-ak.vercel.app  
+**Resume:** [Aryan Kumar](https://drive.google.com/file/d/1og3qDwwRQkC1Ma4tQZCqR8g06Y01czBG/view?usp=sharing)
 
+**Goal:** Paste or upload text → index in a **cloud-hosted vector DB** → retrieve **top-k** → **rerank** → answer with an **LLM** and **inline citations**.
 
-Goal: Paste or upload text → index in a cloud vector DB → retrieve top-k → rerank → answer with an LLM and inline citations.
+---
 
-Architecture
+## Highlights
+- **Cloud vector DB:** Weaviate Cloud (HNSW, cosine, vectorizer=none).
+- **Embeddings:** Cohere `embed-english-v3.0` (1024-d).
+- **Retriever + Reranker:** vector top-k (12) → Cohere `rerank-english-v3.0` → keep best 6.
+- **Answering LLM:** Cohere `command-r-plus`, with `[n]` inline citations and graceful *“I don’t know.”*
+- **Chunking:** ~1,000 tokens per chunk (fast 4-chars≈1-token heuristic) with ~150 overlap (≈10–15%).
+- **Frontend:** Next.js (App Router) with paste/ask UI, sources panel, and total time (ms).
+
+---
+
+## Architecture
+
 ```mermaid
 flowchart LR
   A[Frontend]
   B[Ingest API]
-  A -->|POST /api/ingest| B
-  ```
+  C[Ask API]
+  D[Cohere Embed]
+  E[Weaviate]
+  F[Cohere Rerank]
+  G[Cohere Chat]
 
-Frontend: Next.js (App Router). Paste/ask UI with timing + sources panel.
+  A -->|POST /api/ingest| B --> D --> E
+  A -->|POST /api/ask|    C --> D --> E -->|top-k| F --> G --> A
 
-Embeddings: Cohere embed-english-v3.0 (1024-d).
+Project Structure
+```bash
+mini-rag/
+├─ src/
+│  ├─ app/
+│  │  ├─ api/
+│  │  │  ├─ ingest/route.ts   # chunk → embed (batched) → upsert (batched)
+│  │  │  └─ ask/route.ts      # query → embed → retrieve → rerank → chat
+│  │  ├─ layout.tsx
+│  │  └─ page.tsx             # UI
+│  └─ lib/
+│     ├─ chunker.ts           # lightweight sentence-aware chunker
+│     └─ weaviate.ts          # client factory
+├─ scripts/
+│  └─ init-weaviate.mjs       # create class if missing
+├─ .env.example
+└─ README.md
 
-Vector DB: Weaviate Cloud (HNSW, cosine, vectorizer=none).
 
-Retrieval: vector top-k (default 12).
-
-Reranker: Cohere rerank-english-v3.0; keep best N (default 6).
-
-Answering LLM: Cohere command-r-plus; inline [n] citations; graceful I don’t know.
-
-Index / Collection Config (Track B)
-
-Class name: DocChunk
-
-Distance: cosine
-
-Vectorizer: none
-
-Vector index: HNSW
-
-Dimension: 1024 (matches Cohere embeddings)
-
-Properties stored (for citations & filters):
-
-doc_id (uuid), chunk_id (uuid)
-
-source (e.g., upload, url), title, section, position
-
-text (chunk body), url, published_at
-
-Upsert strategy: one object per chunk, with metadata + vector.
-
-Chunking Strategy
-
-Target ~1,000 tokens per chunk (using a fast 4-chars≈1-token heuristic)
-
-~150 token overlap (≈10–15%)
-
-Prefer breaks on sentence/paragraph boundaries
-
-Metadata recorded: title, section="body", position (0-based)
+```
 
 Environment Variables
 
@@ -85,7 +81,7 @@ NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
 Tip: WEAVIATE_HOST must be just the hostname (no scheme), e.g.
 awkere3eq4eyu4uhwvns9a.c0.asia-southeast1.gcp.weaviate.cloud
 
-Quick Start (Local)
+## Quick Start (Local)
 ``` bash
 # 1) Install
 npm i
@@ -141,32 +137,25 @@ POST /api/ask
 Embeds query → vector search (top-k) → Cohere Rerank → Cohere Chat
 Response: { ok, answer, sources: [{n,title,section,position,source,url,snippet}], timings_ms }
 
-Minimal Eval (Acceptance Criteria)
+## Minimal Eval (Acceptance Criteria)
 
 Use the sample doc below to create a small index, then ask the following 5 questions.
 Record the results in this section after you run them on your live URL.
 
 Sample doc to paste
-```vbnet
+```bash
 System: Mini-RAG demo spec.
 
 Vector DB: Weaviate Cloud, HNSW, cosine, vectorizer=none.
-
 Embeddings: Cohere embed-english-v3.0 (1024-dim).
-
 Chunking: ~1,000 tokens per chunk with ~150-token overlap (≈10–15%). We store metadata: doc_id, chunk_id, source, title, section, position, text, url, published_at.
-
 Retrieval: vector top-k = 12 from Weaviate.
-
 Reranker: Cohere rerank-english-v3.0; after reranking we keep the best 6 chunks.
-
 Answering LLM: Cohere command-r-plus. Answers must be grounded in context with inline [n] citations; if not found, reply “I don’t know.”
-
 Frontend: shows total time in ms.
-
 Upsert strategy: one object per chunk with its vector and metadata.
 ```
-5 Q/A (gold set)
+## 5 Q/A (gold set)
 
 What embedding model and dimensionality are used?
 
@@ -180,7 +169,7 @@ What should the model answer if the info isn’t in the context?
 
 Example outcome: 5/5 correct with proper [n] citations; total time ≈ 1–3 s on small docs.
 
-Rough Cost Notes (informational)
+## Rough Cost Notes (informational)
 
 For small docs:
 
@@ -205,7 +194,7 @@ English embeddings model; non-English recall may drop.
 
 Minimal retries/backoff; no per-user quotas; no auth.
 
-What I’d do next
+## What I’d do next
 
 Hybrid search (BM25 + vector) with basic filters (by title/source/date).
 
@@ -243,7 +232,7 @@ NEXT_PUBLIC_PRICE_EMBED_PER_1K=0.10
 NEXT_PUBLIC_PRICE_RERANK_PER_DOC=0.0004
 NEXT_PUBLIC_PRICE_CHAT_PER_1K=0.50
 ```
-Troubleshooting
+## Troubleshooting
 
 401 invalid api token → check COHERE_API_KEY / WEAVIATE_API_KEY.
 
