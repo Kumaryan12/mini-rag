@@ -29,9 +29,17 @@ flowchart LR
   F[Cohere Rerank]
   G[Cohere Chat]
 
-  A -->|POST /api/ingest| B --> D --> E
-  A -->|POST /api/ask|    C --> D --> E -->|top-k| F --> G --> A
+  A -->|POST /api/ingest| B
+  A -->|POST /api/ask| C
+  B --> D
+  B --> E
+  C --> D
+  C --> E
+  E -->|top-k| F
+  F --> G
+  G --> A
 
+```
 Project Structure
 ```bash
 mini-rag/
