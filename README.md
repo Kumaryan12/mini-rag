@@ -19,8 +19,6 @@
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Index / Collection Config (Track B)](#index--collection-config-track-b)
-- [Chunking Strategy](#chunking-strategy)
 - [Environment Variables](#environment-variables)
 - [Quick Start (Local)](#quick-start-local)
 - [Deploy (Free Host: Vercel)](#deploy-free-host-vercel)
@@ -80,7 +78,9 @@ mini-rag/
 
 ```
 
-Environment Variables
+## Environment Variables
+
+---
 
 Create .env.local (local) and set the same on Vercel Production:
 ``` bash
@@ -137,8 +137,8 @@ Deploy.
 
 Visit your live URL → first screen should load without console errors.
 
-API
-POST /api/ingest
+## API
+## POST /api/ingest
 ```jsonc
 {
   "text": "string (full document)",
@@ -152,7 +152,7 @@ POST /api/ingest
 Splits into chunks → embeds in batches (≤96) → upserts to Weaviate in batches.
 Response: { ok, doc_id, chunks, embedded, weaviate_status }
 
-POST /api/ask
+## POST /api/ask
 ```jsonc
 {
   "query": "question string",
@@ -207,9 +207,9 @@ Rerank: ~finalN*2 docs × $NEXT_PUBLIC_PRICE_RERANK_PER_DOC
 Chat: (promptTokens)/1000 × $NEXT_PUBLIC_PRICE_CHAT_PER_1K
 These are shown in the README only (no billing logic in code).
 
-Remarks (limits, trade-offs, next steps)
+## Remarks (limits, trade-offs, next steps)
 
-Current limitations
+## Current limitations
 
 Vector-only retrieval (no BM25/hybrid); no metadata filters yet.
 
@@ -233,7 +233,7 @@ Optional multilingual embeddings switch.
 
 Auth + per-user namespaces and quotas.
 
-.env.example
+## .env.example
 ```bash
 # Cohere
 COHERE_API_KEY=YOUR_KEY
